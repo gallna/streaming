@@ -1,0 +1,25 @@
+{
+    "name": "gallna/streaming",
+    "require": {
+        "zendframework/zend-http": "2.4.*",
+        "gallna/stream": "*"
+    },
+    "authors": [
+        {
+            "name": "Tomasz Jonik",
+            "email": "tom.jonik@hotmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "autoload": {
+        "psr-4": {
+            "Kemer\\Streaming\\": "src/Kemer/Streaming"
+        }
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url":  "git@github.com:gallna/stream.git"
+        }
+    ]
+}
