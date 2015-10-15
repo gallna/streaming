@@ -83,6 +83,7 @@ class ServerManager
      */
     public function getServers()
     {
+        return $this->servers;
         $servers = [];
         foreach ($this->servers as $url => $server) {
             $servers[$url] = $server->getServers();

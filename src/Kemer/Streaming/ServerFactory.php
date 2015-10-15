@@ -43,7 +43,7 @@ class ServerFactory
     public function mpegtsStream($url)
     {
         $command = sprintf(
-            'cvlc "%s" --rate 1 --sout="#std{access=file,mux=ts,dst=\'/dev/stdout\'}"',
+            'exec cvlc -vvv "%s" --rate 1 --sout="#std{access=file,mux=ts,dst=\'/dev/stdout\'}" vlc://quit',
             $url
         );
         return new Pipe\ReadPipeStream($command);
@@ -75,7 +75,7 @@ class ServerFactory
     public function liveStream($url, $port, $host = null)
     {
         $host = $host ?: $this->getIp();
-        $stream = $this->mpegtsStream($url);
+        $stream = $this->mpegtsFfmpegStream($url);
         return $server = new Socket\LiveServer($stream, $host, $port);
     }
 }
