@@ -1,4 +1,6 @@
 <?php
+declare(ticks = 1);
+
 namespace Kemer\Streaming\Socket;
 
 use Zend\Http\Response;
@@ -61,7 +63,27 @@ abstract class AbstractSocketServer implements SocketServerInterface
             $url
         );
     }
-
+    /**
+     * Server constructor
+     *
+     * @param string $url
+     */
+    public function signalHandler($signal)
+    {
+        print "Caught SIGAL $signal\n";
+        switch ($signal) {
+            case SIGTERM: // handle shutdown tasks
+                $this->close();
+                exit;
+                break;
+            case SIGINT:
+                $this->close();
+                exit;
+                break;
+            default: // handle all other signals
+                $this->close();
+        }
+    }
     /**
      * Set stream to serve
      *
@@ -70,6 +92,8 @@ abstract class AbstractSocketServer implements SocketServerInterface
      */
     public function setStream(StreamInterface $stream)
     {
+        pcntl_signal(SIGINT, [$this, "signalHandler"]);
+        pcntl_signal(SIGTERM, [$this, "signalHandler"]);
         $this->stream = $stream;
         return $this;
     }
@@ -171,11 +195,11 @@ abstract class AbstractSocketServer implements SocketServerInterface
         } elseif (empty($this->clients)) {
             //$chunk = $stream->read($this->buffer);
             $this->skipped++;
-            e("skipped... ".$this->skipped, 'yellow');
+            //e("skipped... ".$this->skipped, 'yellow');
             $chunk = $stream->getContents();
         } else {
             $this->skipped++;
-            e("skipped... ".$this->skipped, 'red');
+            //e("skipped... ".$this->skipped, 'red');
         }
     }
 
@@ -267,7 +291,7 @@ abstract class AbstractSocketServer implements SocketServerInterface
      *
      * @return void
      */
-    public function close()
+    final public function close()
     {
         foreach ($this->clients as &$client) {
             $this->closeConnection($client);
@@ -277,7 +301,7 @@ abstract class AbstractSocketServer implements SocketServerInterface
             fclose($this->server);
             e("Server closed", 'red');
         }
-
+        $this->stream->close();
     }
 
     /**
