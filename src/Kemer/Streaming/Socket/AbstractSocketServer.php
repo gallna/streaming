@@ -9,23 +9,8 @@ use Kemer\Stream\Exceptions\SocketException;
 use Kemer\Stream\Exceptions\ProcessException;
 use Psr\Http\Message\StreamInterface;
 
-abstract class AbstractSocketServer implements SocketServerInterface
+abstract class AbstractSocketServer
 {
-    /**
-     * @var string
-     */
-    private $host;
-
-    /**
-     * @var integer
-     */
-    private $port;
-
-    /**
-     * @var StreamInterface
-     */
-    private $stream;
-
     /**
      * @var resource
      */
@@ -47,97 +32,9 @@ abstract class AbstractSocketServer implements SocketServerInterface
     private $running = true;
 
     /**
-     * @var Redis
+     * @var integer
      */
-    private $redis;
-
-    /**
-     * Server constructor
-     *
-     * @param string $url
-     */
-    public function __construct($url, $port, $host = "127.0.0.1")
-    {
-        $this->command = sprintf(
-            'ffmpeg -re -i "%s" -c copy -bsf:v h264_mp4toannexb -f mpegts pipe:',
-            $url
-        );
-    }
-    /**
-     * Server constructor
-     *
-     * @param string $url
-     */
-    public function signalHandler($signal)
-    {
-        print "Caught SIGAL $signal\n";
-        switch ($signal) {
-            case SIGTERM: // handle shutdown tasks
-                $this->close();
-                exit;
-                break;
-            case SIGINT:
-                $this->close();
-                exit;
-                break;
-            default: // handle all other signals
-                $this->close();
-        }
-    }
-    /**
-     * Set stream to serve
-     *
-     * @param StreamInterface $stream
-     * @return this
-     */
-    public function setStream(StreamInterface $stream)
-    {
-        pcntl_signal(SIGINT, [$this, "signalHandler"]);
-        pcntl_signal(SIGTERM, [$this, "signalHandler"]);
-        $this->stream = $stream;
-        return $this;
-    }
-
-    /**
-     * Set server host and port
-     *
-     * @param StreamInterface $stream
-     * @return this
-     */
-    public function setAddress($host, $port)
-    {
-        $this->host = $host;
-        $this->port = $port;
-        return $this;
-    }
-
-    /**
-     * Returns stream
-     *
-     * @return StreamInterface
-     */
-    public function getStream()
-    {
-        return $this->stream;
-    }
-
-    /**
-     * Run server
-     *
-     * @param integer $port
-     * @param string $host
-     * @return void
-     */
-    public function run()
-    {
-        $this->redis = new \Redis();
-        $this->redis->connect('127.0.0.1', 6379);
-
-        $this->startServer($this->port, $this->host);
-        while($this->running) {
-            $this->loop($this->stream);
-        }
-    }
+    private $skipped = 0;
 
     /**
      * Create a TCP socket
@@ -154,21 +51,36 @@ abstract class AbstractSocketServer implements SocketServerInterface
         }
         return $this->server;
     }
-    private $skipped = 0;
+
+
+    /**
+     * Run server
+     *
+     * @param integer $port
+     * @param string $host
+     * @return void
+     */
+    public function run($port, $host)
+    {
+        $this->startServer($port, $host);
+        while($this->running) {
+            $this->loop();
+        }
+    }
+
     /**
      * Loop over existing connections
      *
      * @param StreamInterface $stream
      * @return void
      */
-    private function loop(StreamInterface $stream)
+    private function loop()
     {
         $read = $this->clients;
         $read[] = $this->server;
         $write = $this->clients;
 
-        if (stream_select($read, $write, $except, 0) > 0) {
-
+        if (0 !== ($num = stream_select($read, $write, $except, 2000))) {
             //new client
             if (in_array($this->server, $read)) {
                 if ($client = stream_socket_accept($this->server)) {
@@ -177,29 +89,16 @@ abstract class AbstractSocketServer implements SocketServerInterface
                 //delete the server socket from the read sockets
                 unset($read[array_search($this->server, $read)]);
             }
+
             if (!empty($read)) {
-                $this->read($read);
+                $this->onRead($read);
             }
 
             if (!empty($write)) {
-                try {
-                    //$chunk = $stream->read($this->buffer);
-                    $chunk = $stream->getContents();
-                } catch (ProcessException $e) {
-                    $this->close();
-                    e($e->getMessage(), 'green');
-                    exit($e->getCode());
-                }
-                $this->write($write, $chunk);
+                $this->onWrite($write);
             }
-        } elseif (empty($this->clients)) {
-            //$chunk = $stream->read($this->buffer);
-            $this->skipped++;
-            //e("skipped... ".$this->skipped, 'yellow');
-            $chunk = $stream->getContents();
-        } else {
-            $this->skipped++;
-            //e("skipped... ".$this->skipped, 'red');
+        } elseif($num === false) {
+            echo "stream_select() failed\n";
         }
     }
 
@@ -208,13 +107,12 @@ abstract class AbstractSocketServer implements SocketServerInterface
      *
      * @param resource $client
      */
-    private function addClient($client)
+    protected function addClient($client)
     {
         stream_set_blocking($client, 0);
-        $this->openConnection($client);
+        $this->clientAdded($client);
         $this->clients[] = $client;
-        $this->redis->publish('server-1', 'clients '.count($this->clients));
-        e("New client: ".stream_socket_get_name($client, true)." (".count($this->clients).")", 'light_cyan');
+        echo "New client: ".stream_socket_get_name($client, true)."\n";
     }
 
     /**
@@ -222,45 +120,27 @@ abstract class AbstractSocketServer implements SocketServerInterface
      *
      * @param resource $client
      */
-    private function removeClient($client)
+    protected function removeClient($client)
     {
         if (is_resource($client)) {
-            e("Client disconnected: ".stream_socket_get_name($client, true)." (".(count($this->clients) - 1).")", 'cyan');
+            $this->clientRemoved($client);
+            echo "Client disconnected: ".stream_socket_get_name($client, true)."\n";
             unset($this->clients[array_search($client, $this->clients)]);
             @fclose($client);
         } else {
-            e("Client already disconnected ? (".count($this->clients).")", 'red');
+            echo "Client already disconnected?"."\n";
         }
     }
-
-    /**
-     * Sends a chunk response to new clients to initiate connection
-     *
-     * @param resource $client
-     */
-    abstract public function openConnection($client);
-
-    /**
-     * Sends a final chunk response to client and finish connection
-     *
-     * @param resource $client
-     */
-    abstract public function closeConnection($client);
-
 
     /**
      * Read client messages
      *
      * @param resource[] $clients
      */
-    protected function read(array $clients)
+    private function onRead(array $clients)
     {
-        foreach($clients as $sock) {
-            if(!($data = stream_get_contents($sock))) {
-                $this->removeClient($sock);
-                continue;
-            }
-            e($data, 'green');
+        foreach($clients as $client) {
+            $this->read($client);
         }
     }
 
@@ -270,17 +150,17 @@ abstract class AbstractSocketServer implements SocketServerInterface
      * @param resource[] $clients
      * @param string $chunk
      */
-    protected function write(array $clients, $chunk)
+    private function onWrite(array $clients)
     {
-        foreach($clients as $sock) {
+        foreach($clients as $client) {
             try {
-                fwrite($sock, $chunk);
+                $this->write($client);
             } catch (\ErrorException $e) {
                 $exception = new SocketException();
                 if (!$exception->isConnectionClosed()) {
                     throw $exception;
                 }
-                $this->removeClient($sock);
+                $this->removeClient($client);
             }
         }
     }
@@ -299,7 +179,7 @@ abstract class AbstractSocketServer implements SocketServerInterface
         }
         if (is_resource($this->server)) {
             fclose($this->server);
-            e("Server closed", 'red');
+            echo "Server closed";
         }
         $this->stream->close();
     }

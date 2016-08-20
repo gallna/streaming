@@ -1,7 +1,8 @@
 {
     "name": "gallna/streaming",
     "require": {
-        "zendframework/zend-http": "2.4.*",
+        "zendframework/zend-http": "2.5.*",
+        "guzzlehttp/guzzle": "~6.0",
         "gallna/stream": "*"
     },
     "authors": [
